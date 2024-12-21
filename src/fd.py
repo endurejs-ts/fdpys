@@ -64,6 +64,13 @@ class Fd:
         }
         
         return Table(name, schema_dict, self)  # Fd 인스턴스를 Table에 전달
+    
+    def truncate_table(self, table_name: str):
+        if table_name not in self.database["tables"]:
+            raise ValueError(f"Table '{table_name}' does not exist.")
+        
+        self.database["tables"][table_name]["data"] = []
+        self.saveInternal()
 
 # Table 클래스 정의 (Fd 인스턴스를 db 매개변수로 사용)
 class Table:
@@ -135,6 +142,11 @@ class Table:
                 if row[key] != value:
                     return False
         return True
+    
+    def truncate(self):
+        self.data = []
+        self.db.database["tables"][self.name]["data"] = self.data
+        self.db.saveInternal()
 
     def select(self, condition: Dict[Any, Any] = None):
         if condition:
@@ -143,3 +155,53 @@ class Table:
 
     def show(self):
         return self.data
+    
+    def join(self, other_table, on_condition, type = "inner"):
+        result = []
+
+        if type == "inner":
+            for row1 in self.data:
+                for row2 in other_table.data:
+                    if on_condition(row1, row2):
+                        result.append({**row1, **row2})
+
+        elif type.lower() == "left":
+            for row1 in self.data:
+                matched = False
+                for row2 in other_table.data:
+                    if on_condition(row1, row2):
+                        result.append({**row1, **row2})
+                        matched = True
+                if not matched:
+                    result.append({**row1, **{col: None for col in other_table.schema.keys()}})
+
+        elif type.lower() == "right":     
+            for row2 in other_table.data:
+                matched = False
+                for row1 in self.data:
+                    if on_condition(row1, row2):
+                        result.append({**row1, **row2})
+                        matched = True
+                if not matched:
+                    result.append({**{col: None for col in self.schema.keys()}, **row2})
+
+        elif type.lower() == "full":
+            seen = set()
+            for row1 in self.data:
+                matched = False
+                for row2 in other_table.data:
+                    if on_condition(row1, row2):
+                        result.append({**row1, **row2})
+                        matched = True
+                        seen.add(id(row2))
+                
+                if not matched:
+                    result.append({**row1, **{col: None for col in other_table.schema.keys()}})
+
+            for row2 in other_table.data:
+                if id(row2) not in seen:
+                    result.append({**{col: None for col in self.schema.keys()}, **row2})
+            
+        return result
+    
+    
