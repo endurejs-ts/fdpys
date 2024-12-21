@@ -1,5 +1,5 @@
 import json
-from uuid import uuid4
+# from uuid import uuid4
 from typing import Dict, Any, List
 from fdv import FdvOptions
 
@@ -40,8 +40,15 @@ class Fd:
     def create_db(self):
         self.database = {"type": "database", "tables": {}}
         self.saveInternal()
+    
+    def drop_table(self, name: str):
+        """Deletes a table from the database."""
+        if name not in self.database["tables"]:
+            raise ValueError(f"Table '{name}' does not exist.")
+        del self.database["tables"][name]
+        self.saveInternal()
 
-    def create_table(self, name: str, schema: Dict[str, Any]) -> 'Table':
+    def create_table(self, name: str, schema: Dict[str, FdvOptions]) -> 'Table':
         if name in self.database["tables"]:
             raise ValueError(f"Table '{name}' already exists.")
         
@@ -101,12 +108,20 @@ class Table:
         self.db.saveInternal()
 
     def match_condition(self, row, condition):
+        # AND 조건: condition이 리스트인 경우 모든 조건을 만족해야 True
+        if isinstance(condition, list):
+            for sub_condition in condition:
+                if not self.match_condition(row, sub_condition):
+                    return False
+            return True
+
+        # 기존 조건 처리
         for key, value in condition.items():
             if isinstance(value, dict):
                 for operator, val in value.items():
-                    if operator == "gt" and not row[key] > val:
+                    if operator == "gt" and not row[key] > int(val):
                         return False
-                    elif operator == "lt" and not row[key] < val:
+                    elif operator == "st" and not row[key] < int(val):
                         return False
                     elif operator == "eq" and not row[key] == val:
                         return False
@@ -115,8 +130,6 @@ class Table:
                     elif operator == "in" and row[key] not in val:
                         return False
                     elif operator == "like" and val not in row[key]:
-                        return False
-                    elif operator == "st" and row[key] <= val:
                         return False
             else:
                 if row[key] != value:
