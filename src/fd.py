@@ -1,67 +1,9 @@
 import json
 from uuid import uuid4
 from typing import Dict, Any, List
+from fdv import FdvOptions
 
-class Table:
-    def __init__(self, name, schema):
-        self.name = name
-        self.schema = schema
-        self.data = []
-
-    def insert(self, row: Dict[Any, Any]):
-        # 데이터 삽입 시 autoIncrement 처리
-        for col, value in self.schema.items():
-            if "autoincrement" in value.get("options", []) and col not in row:
-                row[col] = self.get_next_autoincrement_value_internal(col)
-        self.data.append(row)
-
-    def insert_many(self, rows: List):
-        for row in rows:
-            self.insert(row)
-
-    def get_next_autoincrement_value_internal(self, column):
-        last_value = max([row[column] for row in self.data], default=0)
-        return last_value + 1
-
-    def modify(self, condition, updates):
-        for row in self.data:
-            if self.match_condition(row, condition):
-                for key, value in updates.items():
-                    if key in row:
-                        row[key] = value
-
-    def delete(self, condition):
-        self.data = [row for row in self.data if not self.match_condition(row, condition)]
-
-    def match_condition(self, row, condition):
-        for key, value in condition.items():
-            if isinstance(value, dict):
-                for operator, val in value.items():
-                    if operator == "gt" and not row[key] > val:
-                        return False
-                    elif operator == "lt" and not row[key] < val:
-                        return False
-                    elif operator == "eq" and not row[key] == val:
-                        return False
-                    elif operator == "ne" and not row[key] != val:
-                        return False
-                    elif operator == "in" and row[key] not in val:
-                        return False
-                    elif operator == "like" and val not in row[key]:
-                        return False
-            else:
-                if row[key] != value:
-                    return False
-        return True
-
-    def select(self, condition: Dict[Any, Any] = None):
-        if condition:
-            return [row for row in self.data if self.match_condition(row, condition)]
-        return self.data
-
-    def show(self):
-        return self.data
-
+# Fd 클래스 정의를 먼저 합니다.
 class Fd:
     def __init__(self, filepath, autosave=True):
         self.filepath = filepath
@@ -85,29 +27,106 @@ class Fd:
         
         except json.JSONDecodeError:
             # 파일이 있지만 JSON 형식이 올바르지 않으면 기본 구조로 초기화
-            self.databases = {"type": "database", "tables": {}}
+            self.database = {"type": "database", "tables": {}}
             self.saveInternal()
 
     def saveInternal(self):
-        with open(self.filepath, 'w') as f:
-            json.dump(self.database, f, indent=4)
+        try:
+            with open(self.filepath, 'w') as f:
+                json.dump(self.database, f, indent=4)
+        except FileNotFoundError:
+            return {"type": "error", "value": {}, "msg": "fileNotFound"}
 
     def create_db(self):
         self.database = {"type": "database", "tables": {}}
         self.saveInternal()
 
-    def create_table(self, name: str, schema: Dict[str, Any]) -> Table:
+    def create_table(self, name: str, schema: Dict[str, Any]) -> 'Table':
         if name in self.database["tables"]:
             raise ValueError(f"Table '{name}' already exists.")
+        
+        # Convert FdvOptions to dict before saving
+        schema_dict = {col: options.to_dict() if isinstance(options, FdvOptions) else options
+                    for col, options in schema.items()}
+        
         self.database["tables"][name] = {
             "type": "table",
-            "columns": schema,
+            "columns": schema_dict,
             "data": [],
             "current_id": 0
         }
-        self.saveInternal()
+        
+        return Table(name, schema_dict, self)  # Fd 인스턴스를 Table에 전달
 
-    def get_table(self, name):
-        if name not in self.database["tables"]:
-            raise ValueError(f"Table '{name}' does not exist.")
-        return Table(self.database["tables"][name], self)
+# Table 클래스 정의 (Fd 인스턴스를 db 매개변수로 사용)
+class Table:
+    def __init__(self, name, schema, db: Fd):
+        self.name = name
+        self.schema = schema
+        self.data = []
+        self.db = db  # Fd 인스턴스를 참조
+
+    def insert(self, row: Dict[Any, Any]):
+        # 데이터 삽입 시 autoIncrement 처리
+        for col, value in self.schema.items():
+            if "autoincrement" in value.get("options", []) and col not in row:
+                row[col] = self.get_next_autoincrement_value_internal(col)
+        self.data.append(row)
+        # 변경된 데이터를 Fd 데이터베이스에 반영
+        self.db.database["tables"][self.name]["data"] = self.data
+        self.db.saveInternal()  # 데이터베이스 저장
+
+    def insert_many(self, rows: List):
+        for row in rows:
+            self.insert(row)
+
+    def get_next_autoincrement_value_internal(self, column):
+        last_value = max([row[column] for row in self.data], default=0)
+        return last_value + 1
+
+    def modify(self, condition, updates):
+        for row in self.data:
+            if self.match_condition(row, condition):
+                for key, value in updates.items():
+                    if key in row:
+                        row[key] = value
+        # 변경된 데이터를 Fd 데이터베이스에 반영
+        self.db.database["tables"][self.name]["data"] = self.data
+        self.db.saveInternal()
+
+    def delete(self, condition):
+        self.data = [row for row in self.data if not self.match_condition(row, condition)]
+        # 변경된 데이터를 Fd 데이터베이스에 반영
+        self.db.database["tables"][self.name]["data"] = self.data
+        self.db.saveInternal()
+
+    def match_condition(self, row, condition):
+        for key, value in condition.items():
+            if isinstance(value, dict):
+                for operator, val in value.items():
+                    if operator == "gt" and not row[key] > val:
+                        return False
+                    elif operator == "lt" and not row[key] < val:
+                        return False
+                    elif operator == "eq" and not row[key] == val:
+                        return False
+                    elif operator == "ne" and not row[key] != val:
+                        return False
+                    elif operator == "in" and row[key] not in val:
+                        return False
+                    elif operator == "like" and val not in row[key]:
+                        return False
+                    elif operator == "st" and row[key] <= val:
+                        return False
+            else:
+                if row[key] != value:
+                    return False
+        return True
+
+    def select(self, condition: Dict[Any, Any] = None):
+        if condition:
+            return [row for row in self.data if self.match_condition(row, condition)]
+        return self.data
+
+    def show(self):
+        return self.data

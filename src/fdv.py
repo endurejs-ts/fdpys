@@ -23,10 +23,12 @@ class FdvOptions:
         return self.definition
 
     def validate(self, validator):
-        self.definition["validate"] = validator
+        self.definition["validate"] = str(validator)
         return self.definition
-
-
+    
+    def to_dict(self):
+        return self.definition
+    
 class Fdv:
     def int(self) -> FdvOptions:
         return FdvOptions("int")
