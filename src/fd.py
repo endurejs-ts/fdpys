@@ -204,4 +204,47 @@ class Table:
             
         return result
     
+class Transaction(Fd):
+    def __init__(self):
+        self.fp = super().filepath
+        self.database = super().load_db()
+        self.auto = super().auto
+        self.transaction = None
+
+    def begin(self):
+        if self.transaction is not None:
+            raise ValueError("Transaction already in progress.")
+        self.transaction = json.loads(json.dumps(self.database))
+
+    def commit(self):
+        if self.transaction is None:
+            raise ValueError("No transaction in progress.")
+        self.database = self.transaction
+        self.transaction = None
+        self.RsaveInternl()
+
+    def rollback(self):
+        if self.transaction is None:
+            raise RuntimeError("No transaction in progress.")
+        self.database = self.transaction
+        self.transaction = None
+        self.RsaveInternl()
+
+    def RsaveInternl(self):
+        if self.transaction is not None:
+            return
+        
+        with open(self.fp, 'w') as f:
+            json.dump(self.database, f, indent=4)
     
+    def create_transaction(self, name, schema):
+        if self.transaction is not None:
+            db_ref = self.transaction
+
+        else:
+            db_ref = self.database
+        
+        if name in db_ref["tables"]:
+            raise ValueError(f"Table '{name}' already exists.")
+        
+        db_ref["tables"][name] = {"types": "table", "columns": schema, "data": [], "current_id": 0}
