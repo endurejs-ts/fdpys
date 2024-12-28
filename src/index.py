@@ -11,4 +11,15 @@ table = fd.create_table("user", {
     "email": v.email()
 })
 
-table.insert({"name": "Alice", "email": "abcd1234gmail.com"})
+# force push
+table.insert_many([
+    {"name": "james", "email": "james39@gmail.com"},
+    {"name": "james junior 2", "email": "james40@gmail.com"}
+])
+
+try:
+    # no-force push
+    table.insert({"name": "Alice", "email": "abcd1234gmail.com"})
+
+except Exception as e:
+    print(e)

@@ -72,6 +72,10 @@ class Fd:
         self.database["tables"][table_name]["data"] = []
         self.saveInternal()
 
+    def begin_transaction(self) -> 'Transaction':
+        """트랜잭션 객체 반환"""
+        return Transaction(self)
+
 # Table 클래스 정의 (Fd 인스턴스를 db 매개변수로 사용)
 class Table:
     def __init__(self, name, schema, db: Fd):
